@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChemiQuant — Chemiluminometer Concentration Analyzer</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">Chemi<span>Quant</span></div>
+    <div class="tag">Chemiluminometer Concentration Analyzer</div>
+  </header>
+
+  <!-- Clean, compact error section: hidden by default, displays only when an actual issue occurs -->
+  <div id="error-section" class="error-banner hidden" role="alert">
+    <div class="error-msg-wrap">
+      <span class="error-icon">⚠️</span>
+      <span id="error-message"></span>
+    </div>
+    <button class="error-dismiss" id="error-close-btn" title="Dismiss error" aria-label="Dismiss">✕</button>
+  </div>
+
+  <nav>
+    <button class="tab-btn active" data-tab="acquire">1 · Acquire &amp; Measure</button>
+    <button class="tab-btn" data-tab="calibrate">2 · Calibrate</button>
+    <button class="tab-btn" data-tab="results">3 · Results</button>
+  </nav>
+
+  <!-- ==================== TAB 1: ACQUIRE & MEASURE ==================== -->
+  <section class="card" id="tab-acquire">
+    <h2>Image Acquisition &amp; ROI Measurement</h2>
+    <p class="sub">Acquire the sample image, set prominence, and measure signal intensity using a 5 &times; 5 pixel ROI.</p>
+
+    <div class="row">
+      <div class="dropzone" id="dz-file">
+        <p><strong>Upload Image, TIFF, or Video</strong><br>TIFF, PNG, JPG, GIF, MP4 — click or drag &amp; drop</p>
+        <input type="file" id="file-input" accept="image/*,video/*,.tif,.tiff">
+        <button type="button" class="btn ghost sample-btn" id="load-sample-btn" style="margin-top:10px">Load Demo Chemiluminescence Image</button>
+      </div>
+      <div>
+        <label for="active-analyte">Active Analyte (for Concentration Prediction)</label>
+        <select id="active-analyte"></select>
+        <div class="analyte-info-box" id="analyte-info-box">
+          <span class="info-label">Active Calibration:</span>
+          <span class="info-val" id="active-cal-eqn">Select an analyte</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="scrub-controls" class="hidden">
+      <label id="scrub-label">Scrub to peak-emission frame</label>
+      <input type="range" id="scrub-slider" min="0" max="100" value="0" step="0.05" style="width:100%">
+    </div>
+
+    <!-- Image Display & ROI Processing Container -->
+    <div id="acquisition-area" class="hidden" style="margin-top:18px">
+      <div class="workspace-header">
+        <span class="image-title" id="displayed-filename">sample.tif</span>
+        <span class="image-dims" id="displayed-dims">0 × 0 px</span>
+      </div>
+
+      <!-- Step 3: Initial manual selection is locked; user follows guided workflow -->
+      <div class="canvas-viewport">
+        <canvas id="display-canvas"></canvas>
+        <div id="selection-status-badge" class="selection-badge locked">
+          Manual Selection: Disabled (Follow workflow steps below)
+        </div>
+      </div>
+
+      <!-- Exact Step-by-Step Measurement Workflow Bar -->
+      <div class="workflow-steps-panel">
+        <div class="workflow-step-col">
+          <label for="prominence-input"><strong>Step 1:</strong> Prominence</label>
+          <div class="input-with-tag">
+            <input type="number" id="prominence-input" value="100" min="1" max="255">
+            <span class="input-tag">px threshold</span>
+          </div>
+        </div>
+
+        <div class="workflow-step-col">
+          <label><strong>Step 2:</strong> ROI Manager</label>
+          <button class="btn secondary" id="btn-open-roi-manager">Open ROI Manager</button>
+        </div>
+
+        <div class="workflow-step-col">
+          <label>ROI Coordinates</label>
+          <div class="roi-coords-readout" id="roi-coords-text">X: — , Y: — (5×5 px)</div>
+        </div>
+      </div>
+
+      <!-- ROI Manager Floating Window / Panel -->
+      <div id="roi-manager-panel" class="roi-manager-card hidden">
+        <div class="roi-card-header">
+          <span>ROI Manager</span>
+          <button class="roi-close-btn" id="roi-panel-close" title="Close panel">✕</button>
+        </div>
+        <div class="roi-card-body">
+          <div class="roi-list-wrap">
+            <select id="roi-items-list" size="3" class="roi-items-select"></select>
+          </div>
+          <div class="roi-actions-bar">
+            <button class="btn" id="roi-btn-add">Add</button>
+            <div class="dropdown-wrapper">
+              <button class="btn secondary" id="roi-btn-more">More ▾</button>
+              <div id="roi-more-dropdown" class="dropdown-menu hidden">
+                <button type="button" id="roi-menu-specify">Specify...</button>
+              </div>
+            </div>
+            <button class="btn action-btn" id="roi-btn-measure" disabled>Measure</button>
+            <button class="btn ghost" id="roi-btn-delete" disabled>Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Specify ROI Modal Dialog -->
+      <div id="specify-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>Specify ROI</h3>
+            <button class="modal-close" id="specify-close-btn">✕</button>
+          </div>
+          <div class="modal-body">
+            <p class="modal-sub">ROI dimensions specified for single-spot chemiluminescence quantification:</p>
+            <div class="row">
+              <div>
+                <label>Width (pixels)</label>
+                <input type="number" id="specify-w" value="5" readonly class="locked-input">
+              </div>
+              <div>
+                <label>Height (pixels)</label>
+                <input type="number" id="specify-h" value="5" readonly class="locked-input">
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>X Position (pixel)</label>
+                <input type="number" id="specify-x" value="0" min="0">
+              </div>
+              <div>
+                <label>Y Position (pixel)</label>
+                <input type="number" id="specify-y" value="0" min="0">
+              </div>
+            </div>
+            <div class="info-pill">
+              ROI Area: <strong>25 pixels (5 × 5)</strong>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" id="btn-apply-specify">Set 5×5 ROI &amp; Select on Image</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SMTP Settings Modal Dialog -->
+      <div id="smtp-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>SMTP Email Configuration</h3>
+            <button class="modal-close" id="smtp-close-btn" type="button">✕</button>
+          </div>
+          <div class="modal-body">
+            <p class="modal-sub">Configure outgoing SMTP credentials to send concentration analysis reports automatically to email recipients.</p>
+            <div class="row">
+              <div style="flex:2">
+                <label for="smtp-host">SMTP Server / Host</label>
+                <input type="text" id="smtp-host" placeholder="smtp.gmail.com">
+              </div>
+              <div style="flex:1">
+                <label for="smtp-port">Port</label>
+                <input type="number" id="smtp-port" placeholder="587" value="587">
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label for="smtp-user">Username / Email</label>
+                <input type="text" id="smtp-user" placeholder="user@gmail.com">
+              </div>
+              <div>
+                <label for="smtp-pass">Password / App Password</label>
+                <input type="password" id="smtp-pass" placeholder="••••••••••••••••">
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label for="smtp-from">From Email (optional, defaults to Username)</label>
+                <input type="email" id="smtp-from" placeholder="noreply@chemiquant.local">
+              </div>
+            </div>
+            <div class="info-pill" style="margin-top:10px; font-size:12px; line-height:1.45;">
+              💡 <strong>Tip for Gmail:</strong> Set host to <code>smtp.gmail.com</code>, port to <code>587</code>, your Gmail address, and use a 16-character Google <strong>App Password</strong> (generate at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" style="color:var(--glow);text-decoration:underline">myaccount.google.com/apppasswords</a>).
+            </div>
+            <div id="smtp-modal-feedback" class="note hidden" style="margin-top:12px"></div>
+          </div>
+          <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn ghost" id="smtp-test-btn">Test Connection</button>
+            <div style="display:flex; gap:8px">
+              <button type="button" class="btn ghost" id="smtp-cancel-btn">Cancel</button>
+              <button type="button" class="btn" id="smtp-save-btn">Save Configuration</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pixel Loupe (Single-pixel inspection of the 5x5 ROI) -->
+      <div id="loupe-panel" class="loupe-panel hidden">
+        <div class="loupe-title">5 × 5 ROI Pixel Magnifier (25 px)</div>
+        <canvas id="loupe-canvas" width="120" height="120"></canvas>
+        <div class="loupe-stats" id="loupe-coords">X: 0, Y: 0</div>
+      </div>
+
+      <!-- Measurement Results Table (Matches ImageJ Results reference format) -->
+      <div id="measurement-results-section" class="hidden" style="margin-top:20px">
+        <h3>Measurement Results</h3>
+        <div class="table-container">
+          <table id="measurement-results-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Image Name</th>
+                <th>Area (pixels)</th>
+                <th>Mean Intensity</th>
+                <th>Standard Deviation</th>
+                <th>Min Intensity</th>
+                <th>Max Intensity</th>
+              </tr>
+            </thead>
+            <tbody id="measurement-results-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Clearly displayed Final Mean Intensity -->
+        <div class="final-intensity-highlight">
+          <div class="fih-label">Final Mean Intensity (5 × 5 ROI)</div>
+          <div class="fih-value" id="final-mean-intensity-val">—</div>
+          <div class="fih-sub" id="final-mean-intensity-sub">Ready for concentration prediction</div>
+        </div>
+
+        <button class="btn primary-action" id="use-measured-intensity-btn">
+          Use Measured Mean Intensity → Predict Concentration
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== TAB 2: CALIBRATE ==================== -->
+  <section class="card hidden" id="tab-calibrate">
+    <h2>Calibration Curve &amp; Standards</h2>
+    <p class="sub">Calibrate chemiluminescence intensity standards. Linear regression is fit server-side (scikit-learn) and saved to the database.</p>
+
+    <div class="row">
+      <div>
+        <label for="analyte-lib">Analyte</label>
+        <select id="analyte-lib"></select>
+      </div>
+      <div>
+        <label for="conc-units">Units</label>
+        <input type="text" id="conc-units" value="µM">
+      </div>
+    </div>
+
+    <table id="cal-table">
+      <thead><tr><th>Concentration</th><th>Measured Intensity</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button class="btn ghost" id="add-row">+ Add standard</button>
+      <button class="btn secondary" id="save-cal">Fit &amp; save curve</button>
+    </div>
+
+    <div class="readout">
+      <div class="stat"><label>Slope (m)</label><div class="val" id="stat-slope">—</div></div>
+      <div class="stat"><label>Intercept (b)</label><div class="val" id="stat-intercept">—</div></div>
+      <div class="stat"><label>Fit Quality (R²)</label><div class="val" id="stat-r2">—</div></div>
+    </div>
+
+    <!-- Improved Graph with clear X-axis and Y-axis labels, tick marks, and scaling -->
+    <div class="graph-wrapper">
+      <div class="graph-header">
+        <span class="graph-title-label" id="cal-graph-title">Calibration Curve Plot</span>
+        <span class="graph-legend" id="cal-graph-legend">■ Standards &nbsp; — Fitted Line</span>
+      </div>
+      <canvas id="cal-canvas"></canvas>
+    </div>
+  </section>
+
+  <!-- ==================== TAB 3: RESULTS ==================== -->
+  <section class="card hidden" id="tab-results">
+    <h2>Concentration Estimate</h2>
+    <p class="sub">Calculated from the measured 5 × 5 ROI mean intensity using the active analyte calibration.</p>
+
+    <div class="result-hero">
+      <div class="badge hidden" id="fit-badge"></div>
+      <div class="num" id="result-value">—</div>
+      <div class="unit" id="result-unit">Concentration</div>
+    </div>
+
+    <table>
+      <tbody>
+        <tr><td>Analyte</td><td id="r-analyte" class="mono">—</td></tr>
+        <tr><td>Measured Mean Intensity (5×5 ROI)</td><td id="r-intensity" class="mono">—</td></tr>
+        <tr><td>Calibration Equation</td><td id="r-equation" class="mono">—</td></tr>
+        <tr><td>Fit Quality (R²)</td><td id="r-r2" class="mono">—</td></tr>
+        <tr><td>Timestamp</td><td id="r-time" class="mono">—</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Sample Location on Calibration Curve -->
+    <div class="graph-wrapper" id="result-graph-wrapper" style="margin-top:20px">
+      <div class="graph-header">
+        <span class="graph-title-label">Sample Position on Calibration Curve</span>
+        <span class="graph-legend">■ Standards &nbsp; — Curve &nbsp; ★ Measured Sample</span>
+      </div>
+      <canvas id="result-canvas"></canvas>
+    </div>
+
+    <div class="row" style="margin-top:18px; align-items:center; gap:8px;">
+      <input type="email" id="email-to" placeholder="recipient@example.com" style="flex:1">
+      <button class="btn" id="send-email-btn">Send Result by Email</button>
+      <button class="btn secondary" id="smtp-settings-btn" type="button" title="Configure outgoing SMTP server">⚙️ SMTP Settings</button>
+    </div>
+    <div id="email-status" class="hidden"></div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:24px;">
+      <h2 style="margin:0">Recent History</h2>
+      <button class="btn ghost" id="btn-clear-history" type="button" style="font-size:12px; padding:4px 10px;">Clear History</button>
+    </div>
+    <table id="history-table"><thead><tr><th>Time</th><th>Analyte</th><th>Measured Intensity</th><th>Conc.</th></tr></thead><tbody></tbody></table>
+  </section>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
